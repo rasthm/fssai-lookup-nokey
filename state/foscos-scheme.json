@@ -1,0 +1,16 @@
+{
+  "bundle": "main.374e09dc2ab315e8a510.bundle.js",
+  "markers": {
+    "x-encrypted-key header": true,
+    "RSA-OAEP key wrapping": true,
+    "sha256 for OAEP": true,
+    "encryptedPayload body": true,
+    "encryptedResponse reply": true,
+    "search endpoint": true,
+    "AES-CBC mode": true,
+    "32-byte session key": true,
+    "16-byte iv": true,
+    "csrf-token endpoint": true
+  },
+  "literalsHash": "913dad214453f57b"
+}

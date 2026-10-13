@@ -102,6 +102,19 @@ automatically, because the new code has to be written. The watcher detects it th
 
 Logs: `logs/watch.log` (every run) and `logs/last-run.json`. Both are git-ignored.
 
+### Email alerts
+
+The watcher emails you when something worth knowing happens: a key was rotated, the site's encryption
+code changed, or the lookup is broken. It does not email for "all fine", for the first baseline run, or
+for FoSCoS maintenance, and it does not repeat the same alert every day.
+
+1. Copy `.env.example` to `.env` (git-ignored).
+2. Fill in `MAIL_USER` and `MAIL_APP_PASSWORD`. For Gmail, turn on 2-step verification and create an
+   app password at https://myaccount.google.com/apppasswords. `MAIL_TO` defaults to `MAIL_USER`.
+
+Without these the watcher still works and logs `mail: NOT SENT`. Mail is sent with a small built-in SMTP
+client (`scripts/mailer.mjs`), so there are no dependencies.
+
 ### Run it every day (Windows)
 
 FoSCoS normally only answers Indian IP addresses, so run the watcher from a machine in India, not from

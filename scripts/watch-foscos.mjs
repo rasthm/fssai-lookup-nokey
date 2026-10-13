@@ -24,6 +24,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { FoscosClient, BASE_URL, KEY_PATHS } from '../src/foscos.js';
+import { sendMail, mailConfigFromEnv } from './mailer.mjs';
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
@@ -194,6 +195,41 @@ export async function runWatch({
   return result;
 }
 
+// What deserves an email: a key rotated, the scheme fingerprint moved, or the lookup is broken.
+// A first baseline run and "FoSCoS is down for maintenance" are not news.
+export function alertFor(result) {
+  const lines = [`Checked: ${result.checkedAt}`, `FoSCoS bundle: ${result.bundle}`, ''];
+  if (result.selfTest?.ran) lines.push(result.selfTest.ok ? `Self-test lookup: OK (${result.selfTest.company ?? 'record'})` : `Self-test lookup: FAILED: ${result.selfTest.error}`, '');
+  if (result.status === 'needs-attention') {
+    lines.push('ACTION NEEDED: the lookup is broken and FoSCoS probably changed its encryption scheme.', 'src/crypto.js and src/foscos.js have to be updated by hand.');
+    if (result.schemeNotes.length) lines.push('', 'What changed on the FoSCoS site:', ...result.schemeNotes.map((n) => `  - ${n}`));
+    return { signature: `needs-attention:${result.bundle}`, subject: 'FoSCoS lookup is BROKEN: action needed', text: lines.join('\n') };
+  }
+  if (result.status === 'updated' && (result.keysChanged.length || result.schemeNotes.length)) {
+    if (result.keysChanged.length) lines.push(`FSSAI rotated the ${result.keysChanged.join(' and ')} public key. The new key was saved in src/ and the self-test ${result.selfTest?.ran ? 'passed' : 'was skipped'}.`);
+    if (result.schemeNotes.length) lines.push('', 'The FoSCoS website code around encryption changed:', ...result.schemeNotes.map((n) => `  - ${n}`), '', result.selfTest?.ran ? 'The lookup still works, so no code change should be needed.' : 'Self-test was skipped, so check that lookups still work.');
+    return { signature: `updated:${result.keysChanged.join('+')}:${result.bundle}`, subject: result.keysChanged.length ? 'FoSCoS rotated its key (lookup still working)' : 'FoSCoS changed its site code (lookup still working)', text: lines.join('\n') };
+  }
+  return null;
+}
+
+async function notify(root, result) {
+  const alert = alertFor(result);
+  if (!alert) return;
+  const stateFile = path.join(root, 'logs', 'last-mail.json');
+  const last = JSON.parse(readIfExists(stateFile) ?? '{}');
+  if (last.signature === alert.signature) return log(root, '  mail: already sent for this change, not repeating');
+  const config = mailConfigFromEnv();
+  if (!config) return log(root, '  mail: NOT SENT, set MAIL_USER and MAIL_APP_PASSWORD in .env to get alerts');
+  try {
+    await sendMail({ ...config, subject: alert.subject, text: alert.text });
+    writeJson(stateFile, { signature: alert.signature, sentAt: new Date().toISOString() });
+    log(root, `  mail: sent to ${config.to}: ${alert.subject}`);
+  } catch (err) {
+    log(root, `  mail: FAILED: ${err.message}`);
+  }
+}
+
 function git(root, ...args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
@@ -230,6 +266,7 @@ function log(root, line) {
 }
 
 async function main(argv) {
+  try { process.loadEnvFile(path.join(ROOT, '.env')); } catch { /* no .env: mail alerts stay off */ }
   const flag = (name) => argv.includes(name);
   const number = argv.includes('--number') ? argv[argv.indexOf('--number') + 1] : process.env.FSSAI_TEST_NUMBER || DEFAULT_TEST_NUMBER;
   let result;
@@ -255,6 +292,8 @@ async function main(argv) {
   } else if (fs.existsSync(attention) && result.status !== 'unavailable') {
     fs.rmSync(attention);
   }
+
+  await notify(ROOT, result);
 
   if (flag('--commit') || flag('--push')) {
     const c = commitChanges(ROOT, result, { push: flag('--push') });

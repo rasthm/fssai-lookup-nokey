@@ -50,7 +50,7 @@ function pick(record, ...names) {
     for (const key of keys) {
       const value = record[key];
       if (key.toLowerCase() === wanted && value !== undefined && value !== null && String(value).trim() !== '') {
-        return value;
+        return typeof value === "string" ? value.trim() : value;
       }
     }
   }
